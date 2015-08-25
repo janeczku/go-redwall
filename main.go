@@ -39,7 +39,8 @@ var (
 	redisHost    string
 	redisPass    string
 	filterDocker bool
-	sshRules     bool
+	filterSSH    bool
+	allowSSH     bool
 )
 
 func init() {
@@ -50,7 +51,8 @@ func init() {
 	flag.StringVar(&redisPass, "redis-pass", "", "redis server password (leave empty to disable authentication)")
 	flag.StringVar(&iface, "interface", "eth0", "name of public interface")
 	flag.BoolVar(&filterDocker, "filter-docker", true, "filter docker container network (FORWARD chain)")
-	flag.BoolVar(&sshRules, "ssh-rules", false, "block SSH bruteforce attacks")
+	flag.BoolVar(&filterSSH, "limit-ssh", false, "detect and limit SSH bruteforce attacks")
+	flag.BoolVar(&allowSSH, "allow-ssh", true, "allow public access to SSH (port 22)")
 
 	flag.Parse()
 
@@ -75,7 +77,7 @@ func main() {
 	}()
 
 	// set log level
-	if debug {
+	if debug || os.Getenv("FIREDIS_DEBUG") == "TRUE" {
 		log.SetLevel(log.DebugLevel)
 	}
 
@@ -99,6 +101,10 @@ func main() {
 		redisPass = os.Getenv("REDIS_PASS")
 	}
 
+	if os.Getenv("ALLOW_SSH") == "FALSE" {
+		allowSSH = false
+	}
+
 	// create Redis pool instance
 	initConnPool(redisHost, redisPass)
 
@@ -108,7 +114,7 @@ func main() {
 		_, err := conn.Do("ping")
 		if err != nil {
 			conn.Close()
-			log.Warnf("connection to redis failed (reconnect in 2 seconds): %v", err)
+			log.Warnf("connection to redis failed (reconnect in 5 secs): %v", err)
 		} else {
 			conn.Close()
 			break
@@ -120,7 +126,7 @@ func main() {
 
 	con := connPool.Get()
 	resp, err := redis.String(con.Do("GET", "firewall:interface"))
-	if err != nil {
+	if err != nil && err != redis.ErrNil {
 		log.Fatal(err)
 	}
 
@@ -130,7 +136,7 @@ func main() {
 		iface = resp
 	}
 
-	log.Infof("using interface %q", iface)
+	log.Infof("firewalling interface %q", iface)
 
 	con.Close()
 
@@ -148,8 +154,8 @@ func main() {
 		return
 	}
 
-	// apply SSH rules
-	if sshRules {
+	// apply SSH attack mitigation rules
+	if filterSSH || os.Getenv("LIMIT_SSH_ATTACKS") == "TRUE" {
 		if err := initSSHRules(); err != nil {
 			log.Fatal(err)
 			return

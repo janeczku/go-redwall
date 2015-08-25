@@ -119,8 +119,10 @@ func initDefaultRules() error {
 
 	// allow SSH
 	// iptables -A firedis-main -p tcp --dport 22 --ctstate NEW -j ACCEPT
-	if _, err := iptables.Raw("-A", chain, "-p", "tcp", "--dport", "22", "-m", "conntrack", "--ctstate", "NEW", "-j", "ACCEPT"); err != nil {
-		return err
+	if allowSSH {
+		if _, err := iptables.Raw("-A", chain, "-p", "tcp", "--dport", "22", "-m", "conntrack", "--ctstate", "NEW", "-j", "ACCEPT"); err != nil {
+			return err
+		}
 	}
 
 	// continue processing in firedis-whitelist
