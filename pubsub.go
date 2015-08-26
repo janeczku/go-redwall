@@ -30,7 +30,8 @@ var (
 
 // Starts a new PubSub client instance
 func initPubSubClient(server, password string) {
-	pubSubClient = pubsub.New(server)
+	pubSubClient = pubsub.New(&pubsub.ConnectionParam{Address: server,
+		Password: password})
 	go pubSubClient.Connect()
 	pubSubClient.WaitFor(pubsub.ConnectedEvent)
 }
