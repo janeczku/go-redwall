@@ -17,8 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"fmt"
-
 	log "github.com/Sirupsen/logrus"
 	"github.com/mcprohosting/redutil/pubsub"
 )
@@ -30,7 +28,7 @@ var (
 
 // Starts a new PubSub client instance
 func initPubSubClient(server, password string) {
-	pubSubClient = pubsub.New(&pubsub.ConnectionParam{Address: server,
+	pubSubClient = pubsub.New(pubsub.ConnectionParam{Address: server,
 		Password: password})
 	go pubSubClient.Connect()
 	pubSubClient.WaitFor(pubsub.ConnectedEvent)
@@ -42,7 +40,7 @@ func watchServices(c *pubsub.Client) {
 	//c.WaitFor(pubsub.SubscribeEvent)
 	log.Info("monitoring firewall:services")
 	defer listener.Unsubscribe()
-	for range listener.Messages {
+	for _ = range listener.Messages {
 		log.Debug("processing service rules update")
 		if err := applyServicesRules(); err != nil {
 			log.Warnf("failed to process services rules update: %v", err)
@@ -56,21 +54,10 @@ func watchWhitelist(c *pubsub.Client) {
 	//c.WaitFor(pubsub.SubscribeEvent)
 	log.Info("monitoring firewall:whitelist")
 	defer listener.Unsubscribe()
-	for range listener.Messages {
+	for _ =range listener.Messages {
 		log.Debug("processing whitelist rules update")
 		if err := applyWhitelistRules(); err != nil {
 			log.Warnf("failed to process whitelist rules update: %v", err)
 		}
 	}
-}
-
-// Blocks until Disconnected event occurs
-func waitForDisconnect() error {
-	ev := pubSubClient.WaitFor(pubsub.DisconnectedEvent)
-	return fmt.Errorf("%v", ev.Packet)
-}
-
-// Blocks until Connected event occurs
-func waitForReconnect() {
-	pubSubClient.WaitFor(pubsub.ConnectedEvent)
 }

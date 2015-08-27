@@ -26,6 +26,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/garyburd/redigo/redis"
+	"github.com/mcprohosting/redutil/pubsub"
 )
 
 const (
@@ -188,10 +189,8 @@ func main() {
 	go watchWhitelist(pubSubClient)
 
 	// run forever
-	for {
-		err := waitForDisconnect()
-		log.Warnf("pubsub connection interrupted: %s", err)
-		waitForReconnect()
-		log.Info("pubsub connection re-established")
+	errorChan := pubSubClient.OnChannel(pubsub.ErrorEvent)
+	for error := range errorChan {
+		log.Warnf("%v", error.Packet)
 	}
 }
