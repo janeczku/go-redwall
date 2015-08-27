@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package main // import "github.com/janeczku/go-redwall"
 
 import (
 	"flag"
@@ -87,11 +87,12 @@ func main() {
 		return
 	}
 
+	fmt.Fprintf(os.Stdout, "▬▬ι═══════ﺤ REDWALL %s -═══════ι▬▬\n", VERSION)
+
 	if redisHost == "" {
 		if os.Getenv("REDIS_HOST") != "" {
 			redisHost = os.Getenv("REDIS_HOST")
 		} else {
-			fmt.Fprintf(os.Stderr, "▬▬ι═══════ﺤ REDWALL %s -═══════ι▬▬\n", VERSION)
 			fmt.Fprintf(os.Stderr, "Missing required argument: '-redis-host'\n")
 			fmt.Fprintf(os.Stderr, "Usage:\n", os.Args[0])
 			flag.PrintDefaults()
@@ -140,11 +141,7 @@ func main() {
 
 	con.Close()
 
-	log.Infof("▬▬ι═══════ﺤ REDWALL %s -═══════ι▬▬", VERSION)
-	log.Infof("REDIS SERVER: %s", redisHost)
-	log.Infof("FIREWALL INTERFACE: %s", iface)
-
-	log.Info("initializing the firewall...")
+	log.Infof("initializing firewall on %s", iface)
 
 	// setup iptables chains
 	if err := initChains(); err != nil {

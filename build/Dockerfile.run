@@ -1,0 +1,11 @@
+FROM gliderlabs/alpine:3.2
+MAINTAINER Jan Broer <janeczku@yahoo.com>
+
+# Install iptables openssh-client
+RUN apk-install ca-certificates iptables ipset sudo busybox
+
+# Copy the binary
+COPY go-redwall /bin/go-redwall
+
+# Redwall is the only command
+ENTRYPOINT ["/bin/go-redwall"]
