@@ -29,34 +29,37 @@ import (
 func initChains() error {
 
 	// create user chains
-	if _, err := iptables.Raw("-N", "redwall-main"); err != nil {
+	_, err := iptables.NewChain("redwall-main", iptables.Filter, false)
+	if  err != nil {
 		return err
 	}
 
-	if _, err := iptables.Raw("-N", "redwall-whitelist"); err != nil {
+	_, err = iptables.NewChain("redwall-whitelist", iptables.Filter, false)
+	if  err != nil {
 		return err
 	}
 
-	if _, err := iptables.Raw("-N", "redwall-services"); err != nil {
+	_, err = iptables.NewChain("redwall-services", iptables.Filter, false)
+	if  err != nil {
 		return err
 	}
 
 	// set default policy to ACCEPT
-	if _, err := iptables.Raw("-P", "INPUT", "ACCEPT"); err != nil {
+	if _, err = iptables.Raw("-P", "INPUT", "ACCEPT"); err != nil {
 		return err
 	}
 
-	if _, err := iptables.Raw("-P", "FORWARD", "ACCEPT"); err != nil {
+	if _, err = iptables.Raw("-P", "FORWARD", "ACCEPT"); err != nil {
 		return err
 	}
 
 	// flush INPUT chain
-	if _, err := iptables.Raw("-F", "INPUT"); err != nil {
+	if _, err = iptables.Raw("-F", "INPUT"); err != nil {
 		return err
 	}
 
 	// create INPUT chain jump rule
-	if _, err := iptables.Raw("-A", "INPUT", "-i", iface, "-j", "redwall-main"); err != nil {
+	if _, err = iptables.Raw("-A", "INPUT", "-i", iface, "-j", "redwall-main"); err != nil {
 		return err
 	}
 
@@ -80,6 +83,12 @@ func initChains() error {
 // Create the boilerplate rules in redwall-main
 func initDefaultRules() error {
 	var chain string = "redwall-main"
+
+	// flush existing rules in the chain
+	if _, err := iptables.Raw("-F", chain); err != nil {
+		return fmt.Errorf("flushing iptables chain %q failed: %v", chain, err)
+	}
+	log.Debugf("flushed iptables chain %q", chain)
 
 	// allow established/related conns
 	// iptables -A redwall-main -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
