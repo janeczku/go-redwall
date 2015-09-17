@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	VERSION = "v0.4.0"
+	VERSION = "v0.4.2"
 )
 
 var (
@@ -145,32 +145,42 @@ func main() {
 
 	// setup iptables chains
 	if err := initChains(); err != nil {
+		tearDownFirewall()
 		log.Fatal(err)
 		return
 	}
 
 	// apply default rules
 	if err := initDefaultRules(); err != nil {
+		tearDownFirewall()
 		log.Fatal(err)
 		return
 	}
 
-	// apply SSH attack mitigation rules
-	if filterSSH || os.Getenv("LIMIT_SSH_ATTACKS") == "TRUE" {
-		if err := initSSHRules(); err != nil {
-			log.Fatal(err)
-			return
-		}
+	// apply SSH chain rules
+	if err := initSSHRules(); err != nil {
+		tearDownFirewall()
+		log.Fatal(err)
+		return
 	}
 
 	// apply services rules
 	if err := applyServicesRules(); err != nil {
+		tearDownFirewall()
 		log.Fatal(err)
 		return
 	}
 
 	// apply ip whitelist rules
 	if err := applyWhitelistRules(); err != nil {
+		tearDownFirewall()
+		log.Fatal(err)
+		return
+	}
+
+	// now activate firewall by inserting jump rules in built-in chains
+	if err := activateFirewall(); err != nil {
+		tearDownFirewall()
 		log.Fatal(err)
 		return
 	}

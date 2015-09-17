@@ -19,6 +19,7 @@ package main
 import (
 	"fmt"
 	"net"
+	"os"
 	"strings"
 
 	log "github.com/Sirupsen/logrus"
@@ -44,6 +45,11 @@ func initChains() error {
 		return err
 	}
 
+	_, err = iptables.NewChain("redwall-sshscan", iptables.Filter, false)
+	if  err != nil {
+		return err
+	}
+
 	// set default policy to ACCEPT
 	if _, err = iptables.Raw("-P", "INPUT", "ACCEPT"); err != nil {
 		return err
@@ -56,24 +62,6 @@ func initChains() error {
 	// flush INPUT chain
 	if _, err = iptables.Raw("-F", "INPUT"); err != nil {
 		return err
-	}
-
-	// create INPUT chain jump rule
-	if _, err = iptables.Raw("-A", "INPUT", "-i", iface, "-j", "redwall-main"); err != nil {
-		return err
-	}
-
-	// create FORWARD chain jump rule if we shoud filter the docker network
-	if filterDocker {
-		rule := []string{
-			"-i", iface,
-			"-o", "docker0",
-			"-j", "redwall-main"}
-		if !iptables.Exists("filter", "FORWARD", rule...) {
-			if _, err := iptables.Raw("-I", "FORWARD", "1", "-i", iface, "-o", "docker0", "-j", "redwall-main"); err != nil {
-				return err
-			}
-		}
 	}
 
 	log.Debugf("created redwall user chains")
@@ -126,14 +114,6 @@ func initDefaultRules() error {
 		return err
 	}
 
-	// allow SSH
-	// iptables -A redwall-main -p tcp --dport 22 --ctstate NEW -j ACCEPT
-	if allowSSH {
-		if _, err := iptables.Raw("-A", chain, "-p", "tcp", "--dport", "22", "-m", "conntrack", "--ctstate", "NEW", "-j", "ACCEPT"); err != nil {
-			return err
-		}
-	}
-
 	// continue processing in redwall-whitelist
 	if _, err := iptables.Raw("-A", chain, "-j", "redwall-whitelist"); err != nil {
 		return err
@@ -141,6 +121,12 @@ func initDefaultRules() error {
 
 	// continue processing in redwall-services
 	if _, err := iptables.Raw("-A", chain, "-j", "redwall-services"); err != nil {
+		return err
+	}
+
+	// Jump to SSH chain
+	// iptables -A redwall-main -p tcp --dport 22 --ctstate NEW -j ACCEPT
+	if _, err := iptables.Raw("-A", chain, "-p", "tcp", "--dport", "22", "-m", "conntrack", "--ctstate", "NEW", "-j", "redwall-sshscan"); err != nil {
 		return err
 	}
 
@@ -153,26 +139,64 @@ func initDefaultRules() error {
 	return nil
 }
 
-// mitigate ssh bruteforce attacks
+// Setup SSH chain rules
 func initSSHRules() error {
-	var chain string = "redwall-main"
-	// iptables -I redwall-main 1 -p tcp --dport 22 -m state --state NEW -m recent --set --name SSH
-	_, err := iptables.Raw("-I", chain, "2", "-p", "tcp", "--dport", "22", "-m", "state", "--state", "NEW",
-		"-m", "recent", "--set", "--name", "SSH")
-	if err != nil {
-		return err
+	var chain string = "redwall-sshscan"
+
+	// flush existing rules in the chain
+	if _, err := iptables.Raw("-F", chain); err != nil {
+		return fmt.Errorf("flushing iptables chain %q failed: %v", chain, err)
+	}
+	log.Debugf("flushed iptables chain %q", chain)
+
+	if filterSSH || os.Getenv("LIMIT_SSH_ATTACKS") == "TRUE" {
+		_, err := iptables.Raw("-A", chain, "-m", "recent", "--set", "--name", "SSH")
+		if err != nil {
+			return err
+		}
+
+		_, err = iptables.Raw("-A", chain, "-m", "recent", "--update", "--seconds", "60", "--hitcount", "5", "--name", "SSH", "--rttl", "-j", "REJECT",
+			"--reject-with", "icmp-port-unreachable")
+		if err != nil {
+			return err
+		}
+
+		_, err = iptables.Raw("-A", chain, "-m", "recent", "--rcheck", "--seconds", "3600", "--hitcount", "10", "--name", "SSH", "--rttl", "-j", "DROP")
+		if err != nil {
+			return err
+		}
+		log.Debugf("created SSH bruteforce attack mitigation rules")
 	}
 
-	// iptables -I redwall-main 2 -p tcp --dport 22 -m state --state NEW -m recent --update --seconds 60
-	// --hitcount 5 --name SSH --rttl -j REJECT --reject-with tcp-reset
-	_, err = iptables.Raw("-I", chain, "3", "-p", "tcp", "--dport", "22", "-m", "state", "--state", "NEW",
-		"-m", "recent", "--update", "--seconds", "60", "--hitcount", "5", "--name", "SSH", "-rttl", "-j", "REJECT",
-		"--reject-with", "tcp-reset")
-	if err != nil {
-		return err
+	if allowSSH {
+		if _, err := iptables.Raw("-A", chain, "-j", "ACCEPT"); err != nil {
+			return err
+		}
+		log.Debugf("created rule to allow SSH connections")
 	}
 
-	log.Debugf("created SSH attack mitigation rules in redwall-main")
+	return nil
+}
+
+// Activate firewall only when all other commands succeeded
+func activateFirewall() error {
+	// create INPUT chain jump rule
+	if _, err := iptables.Raw("-A", "INPUT", "-i", iface, "-j", "redwall-main"); err != nil {
+		return err
+	}
+	// create FORWARD chain jump rule if we should filter the docker network
+	if filterDocker {
+		rule := []string{
+			"-i", iface,
+			"-o", "docker0",
+			"-j", "redwall-main"}
+		if !iptables.Exists("filter", "FORWARD", rule...) {
+			if _, err := iptables.Raw("-I", "FORWARD", "1", "-i", iface, "-o", "docker0", "-j", "redwall-main"); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -202,7 +226,7 @@ func applyWhitelistRules() error {
 		}
 	}
 
-	log.Infof("activated whitelist rules: %v", ips)
+	log.Infof("activated whitelist rules: %b IP entries", len(ips))
 
 	return nil
 }
