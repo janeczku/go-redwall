@@ -4,7 +4,8 @@ This repository provides the [janeczku/redwall](https://registry.hub.docker.com/
 
 ## About
 
-[![](https://badge.imagelayers.io/janeczku/redwall:latest.svg)](https://imagelayers.io/?images=janeczku/redwall:latest)
+[![](https://badge.imagelayers.io/janeczku/redwall:0.4.2.svg)](https://imagelayers.io/?images=janeczku/redwall:latest 'Get your own badge on imagelayers.io')
+
 RedWall (**Red**is Fire**wall**) is slim Alpine Linux based image running a Go application that manages firewall rules on single servers or whole clusters. The port- or IP-based rules are centrally stored in a Redis database and updates are dynamically applied to all hosts running the RedWall image. RedWall filters access to IP services running on the host (INPUT chain) and in Docker containers (FORWARD chain).
 
 **Filter logic**
