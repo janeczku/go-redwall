@@ -30,11 +30,12 @@ import (
 )
 
 const (
-	VERSION = "v0.4.2"
+	VERSION = "v0.4.3"
 )
 
 var (
 	iface        string
+	secGroup     string
 	debug        bool
 	version      bool
 	redisHost    string
@@ -50,7 +51,8 @@ func init() {
 	flag.BoolVar(&debug, "debug", false, "run in debug mode")
 	flag.StringVar(&redisHost, "redis-host", "", "required: redis server address (host:port)")
 	flag.StringVar(&redisPass, "redis-pass", "", "redis server password (leave empty to disable authentication)")
-	flag.StringVar(&iface, "interface", "eth0", "name of public interface")
+	flag.StringVar(&iface, "interface", "", "name of public interface")
+	flag.StringVar(&secGroup, "security-group", "default", "name of security group")
 	flag.BoolVar(&filterDocker, "filter-docker", true, "filter docker container network (FORWARD chain)")
 	flag.BoolVar(&filterSSH, "limit-ssh", false, "detect and limit SSH bruteforce attacks")
 	flag.BoolVar(&allowSSH, "allow-ssh", true, "allow public access to SSH (port 22)")
@@ -87,8 +89,6 @@ func main() {
 		return
 	}
 
-	fmt.Fprintf(os.Stdout, "▬▬ι═══════ﺤ REDWALL %s -═══════ι▬▬\n", VERSION)
-
 	if redisHost == "" {
 		if os.Getenv("REDIS_HOST") != "" {
 			redisHost = os.Getenv("REDIS_HOST")
@@ -104,8 +104,20 @@ func main() {
 		redisPass = os.Getenv("REDIS_PASS")
 	}
 
+	if os.Getenv("SECURITY_GROUP") != "" {
+		secGroup = os.Getenv("SECURITY_GROUP")
+	}
+
+	if os.Getenv("LIMIT_SSH_ATTACKS") == "TRUE" {
+		filterSSH = true
+	}
+
 	if os.Getenv("ALLOW_SSH") == "FALSE" {
 		allowSSH = false
+	}
+
+	if os.Getenv("FILTER_DOCKER") == "FALSE" {
+		filterDocker = false
 	}
 
 	// create Redis pool instance
@@ -128,18 +140,27 @@ func main() {
 	log.Infof("connected to redis at %s", redisHost)
 
 	con := connPool.Get()
-	resp, err := redis.String(con.Do("GET", "firewall:interface"))
+	resp, err := redis.String(con.Do("GET", "firewall:" + secGroup +":interface"))
 	if err != nil && err != redis.ErrNil {
 		log.Fatal(err)
 	}
 
-	if os.Getenv("PUBLIC_IFACE") != "" {
-		iface = os.Getenv("PUBLIC_IFACE")
-	} else if resp != "" {
-		iface = resp
+	if iface == "" {
+		if os.Getenv("PUBLIC_IFACE") != "" {
+			iface = os.Getenv("PUBLIC_IFACE")
+		} else if resp != "" {
+			iface = resp
+		} else {
+			fmt.Fprintf(os.Stderr, "Missing required argument: '-interface'\n")
+			fmt.Fprintf(os.Stderr, "Usage:\n", os.Args[0])
+			flag.PrintDefaults()
+			return
+		}
 	}
 
 	con.Close()
+
+	fmt.Fprintf(os.Stdout, "▬▬ι═══════ﺤ REDWALL %s -═══════ι▬▬\n", VERSION)
 
 	log.Infof("initializing firewall on %s", iface)
 

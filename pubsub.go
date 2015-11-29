@@ -34,11 +34,11 @@ func initPubSubClient(server, password string) {
 	pubSubClient.WaitFor(pubsub.ConnectedEvent)
 }
 
-// Listens for keyspace events for firewall:services
+// Listens for keyspace events for firewall:<secGroup>:services
 func watchServices(c *pubsub.Client) {
-	listener := c.Listener(pubsub.Channel, "__keyspace@0__:firewall:services")
+	listener := c.Listener(pubsub.Channel, "__keyspace@0__:firewall:" + secGroup + ":services")
 	//c.WaitFor(pubsub.SubscribeEvent)
-	log.Info("monitoring firewall:services")
+	log.Info("monitoring firewall:" + secGroup + ":services")
 	defer listener.Unsubscribe()
 	for _ = range listener.Messages {
 		log.Debug("processing service rules update")
@@ -48,11 +48,11 @@ func watchServices(c *pubsub.Client) {
 	}
 }
 
-// Listens for keyspace events for firewall:whitelist
+// Listens for keyspace events for firewall:<secGroup>:whitelist
 func watchWhitelist(c *pubsub.Client) {
-	listener := c.Listener(pubsub.Channel, "__keyspace@0__:firewall:whitelist")
+	listener := c.Listener(pubsub.Channel, "__keyspace@0__:firewall:" + secGroup + ":whitelist")
 	//c.WaitFor(pubsub.SubscribeEvent)
-	log.Info("monitoring firewall:whitelist")
+	log.Info("monitoring firewall:" + secGroup + ":whitelist")
 	defer listener.Unsubscribe()
 	for _ =range listener.Messages {
 		log.Debug("processing whitelist rules update")

@@ -19,7 +19,6 @@ package main
 import (
 	"fmt"
 	"net"
-	"os"
 	"strings"
 
 	log "github.com/Sirupsen/logrus"
@@ -149,14 +148,26 @@ func initSSHRules() error {
 	}
 	log.Debugf("flushed iptables chain %q", chain)
 
-	if filterSSH || os.Getenv("LIMIT_SSH_ATTACKS") == "TRUE" {
+	if filterSSH {
 		_, err := iptables.Raw("-A", chain, "-m", "recent", "--set", "--name", "SSH")
+		if err != nil {
+			return err
+		}
+
+		_, err = iptables.Raw("-A", chain, "-m", "recent", "--update", "--seconds", "60", "--hitcount", "5", "--name", "SSH", "--rttl", "-m", "limit", "--limit", "1/m", "-j", "LOG",
+			"--log-level", "5", "--log-prefix", "Detected fast SSH-Bruteforce ")
 		if err != nil {
 			return err
 		}
 
 		_, err = iptables.Raw("-A", chain, "-m", "recent", "--update", "--seconds", "60", "--hitcount", "5", "--name", "SSH", "--rttl", "-j", "REJECT",
 			"--reject-with", "icmp-port-unreachable")
+		if err != nil {
+			return err
+		}
+
+		_, err = iptables.Raw("-A", chain, "-m", "recent", "--rcheck", "--seconds", "3600", "--hitcount", "10", "--name", "SSH", "--rttl", "-m", "limit", "--limit", "1/h", "-j", "LOG",
+			"--log-level", "5", "--log-prefix", "Detected slow SSH-Bruteforce ")
 		if err != nil {
 			return err
 		}
@@ -181,8 +192,13 @@ func initSSHRules() error {
 // Activate firewall only when all other commands succeeded
 func activateFirewall() error {
 	// create INPUT chain jump rule
-	if _, err := iptables.Raw("-A", "INPUT", "-i", iface, "-j", "redwall-main"); err != nil {
-		return err
+	rule := []string{
+		"-i", iface,
+		"-j", "redwall-main"}
+	if !iptables.Exists("filter", "INPUT", rule...) {
+		if _, err := iptables.Raw("-A", "INPUT", "-i", iface, "-j", "redwall-main"); err != nil {
+			return err
+		}
 	}
 	// create FORWARD chain jump rule if we should filter the docker network
 	if filterDocker {
@@ -202,7 +218,7 @@ func activateFirewall() error {
 
 func applyWhitelistRules() error {
 	var chain string = "redwall-whitelist"
-	ips, err := getRedisSet("firewall:whitelist")
+	ips, err := getRedisSet("firewall:" + secGroup + ":whitelist")
 	if err != nil {
 		return err
 	}
@@ -233,7 +249,7 @@ func applyWhitelistRules() error {
 
 func applyServicesRules() error {
 	var chain string = "redwall-services"
-	ports, err := getRedisSet("firewall:services")
+	ports, err := getRedisSet("firewall:" + secGroup + ":services")
 	if err != nil {
 		return err
 	}
@@ -246,17 +262,16 @@ func applyServicesRules() error {
 
 	for _, key := range ports {
 		s := strings.Split(key, ":")
-		if len(s) < 2 {
+		if len(s) < 3 {
 			log.Errorf("error adding port rule. invalid rule format: %s", key)
 			continue
 		}
-		proto, port := s[0], s[1]
+		label, proto, port := s[0], s[1], s[2]
 		if _, err := iptables.Raw("-A", chain, "-p", proto, "--dport", fmt.Sprint(port), "-j", "ACCEPT"); err != nil {
 			return err
 		}
+		log.Infof("activated service -> name: %s protocol: %s port: %s", label, proto, port)
 	}
-
-	log.Infof("activated services rules: %v", ports)
 
 	return nil
 }
@@ -276,31 +291,43 @@ func deleteChain(chain string) {
 }
 
 func tearDownFirewall() error {
-
-	// flush input chain
-
-	flushChain("INPUT")
+	log.Info("flushing iptables rules")
+	//flushChain("INPUT")
+	// delete jump rule from input
+	rule := []string{
+		"-i", iface,
+		"-j", "redwall-main"}
+	if iptables.Exists("filter", "INPUT", rule...) {
+		if _, err := iptables.Raw("-D", "INPUT", "-i", iface, "-j", "redwall-main"); err != nil {
+			log.Warningf("failed to remove input jump rule: %v", err)
+		}
+	}
 
 	// delete jump rule from forward
-
 	if filterDocker {
-		if _, err := iptables.Raw("-D", "FORWARD", "-i", iface, "-o", "docker0", "-j", "redwall-main"); err != nil {
-			log.Warningf("failed to remove docker jump rule: %v", err)
+		rule := []string{
+			"-i", iface,
+			"-o", "docker0",
+			"-j", "redwall-main"}
+		if iptables.Exists("filter", "FORWARD", rule...) {
+			if _, err := iptables.Raw("-D", "FORWARD", "-i", iface, "-o", "docker0", "-j", "redwall-main"); err != nil {
+				log.Warningf("failed to remove docker jump rule: %v", err)
+			}
 		}
+
 		log.Debugf("removed jump rule from FORWARD chain")
 	}
 
 	// flush user-defined chains
-
 	flushChain("redwall-main")
 	flushChain("redwall-services")
 	flushChain("redwall-whitelist")
-
+	flushChain("redwall-sshscan")
 	// delete user-defined chains
-
 	deleteChain("redwall-main")
 	deleteChain("redwall-services")
 	deleteChain("redwall-whitelist")
+	deleteChain("redwall-sshscan")
 
 	return nil
 }
